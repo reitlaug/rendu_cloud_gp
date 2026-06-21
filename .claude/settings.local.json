@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile functions/function_app.py functions/shared/*.py api/main.py)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); terraform version)",
+      "PowerShell(npm install -g azure-functions-core-tools@4 --unsafe-perm true 2>&1)"
+    ]
+  }
+}

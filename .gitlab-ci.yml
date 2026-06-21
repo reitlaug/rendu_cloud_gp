@@ -1,0 +1,95 @@
+stages:
+  - install
+  - lint
+  - build
+  - deploy
+
+variables:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+# ---------------------------------------------------------------------------
+# 1. Installation des dépendances (cache)
+# ---------------------------------------------------------------------------
+install:functions:
+  stage: install
+  image: python:3.11
+  script:
+    - cd functions
+    - pip install -r requirements.txt --target=.python_packages/lib/site-packages
+  artifacts:
+    paths:
+      - functions/.python_packages/
+    expire_in: 1 hour
+
+install:frontend:
+  stage: install
+  image: node:20
+  script:
+    - cd frontend
+    - npm ci
+  artifacts:
+    paths:
+      - frontend/node_modules/
+    expire_in: 1 hour
+
+# ---------------------------------------------------------------------------
+# 2. Vérification du code
+# ---------------------------------------------------------------------------
+lint:python:
+  stage: lint
+  image: python:3.11
+  script:
+    - pip install flake8
+    - flake8 functions api --max-line-length=120 --extend-ignore=E501,W503 || true
+    - python -m py_compile functions/function_app.py api/main.py
+
+# ---------------------------------------------------------------------------
+# 3. Build du frontend React
+# ---------------------------------------------------------------------------
+build:frontend:
+  stage: build
+  image: node:20
+  dependencies:
+    - install:frontend
+  script:
+    - cd frontend
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 hour
+
+# ---------------------------------------------------------------------------
+# 4. Déploiement du frontend (Azure Static Web Apps)
+# ---------------------------------------------------------------------------
+deploy:frontend:
+  stage: deploy
+  image: node:20
+  dependencies:
+    - build:frontend
+  script:
+    - npm install -g @azure/static-web-apps-cli
+    - swa deploy frontend/dist --deployment-token "$AZURE_STATIC_WEB_APP_TOKEN" --env production
+  only:
+    - main
+
+# ---------------------------------------------------------------------------
+# 5. Déploiement des Azure Functions
+# ---------------------------------------------------------------------------
+deploy:functions:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  dependencies:
+    - install:functions
+  before_script:
+    - az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
+    - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+    - curl -sL https://aka.ms/InstallAzureFunctionsCoreTools | bash || true
+    - apk add --no-cache curl bash || true
+    - npm install -g azure-functions-core-tools@4 --unsafe-perm true
+  script:
+    - cd functions
+    - func azure functionapp publish "$AZURE_FUNCTION_APP_NAME" --python --build remote
+  only:
+    - main
